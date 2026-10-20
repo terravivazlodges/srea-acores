@@ -1,11 +1,10 @@
 import streamlit as st
 import pandas as pd
-import json
 
-st.set_page_config(page_title="SREA Açores - Smoobu Converter", page_icon="📊", layout="centered")
+st.set_page_config(page_title="SREA Açores - Resumo Estatístico", page_icon="📊", layout="centered")
 
-st.title("📊 SREA Açores — Conversor Smoobu")
-st.write("Arraste o ficheiro **CSV de reservas exportado do Smoobu** para gerar automaticamente o relatório JSON estatístico oficial.")
+st.title("📊 SREA Açores — Resumo Estatístico Smoobu")
+st.write("Arraste o ficheiro **CSV de reservas exportado do Smoobu** para obter o relatório final formatado.")
 
 uploaded_file = st.file_uploader("Selecione o ficheiro CSV (.csv)", type="csv")
 
@@ -20,83 +19,45 @@ if uploaded_file is not None:
         df_rc = df[df['Alojamento'].str.contains('RC|Ribeira|Suite|Green|Blue|Garden', case=False, na=False)]
         df_pb = df[df['Alojamento'].str.contains('Porto|Bay|Villa', case=False, na=False)]
 
-        def extrair_pais_txt(texto):
-            t = str(texto).upper()
-            mapa = {
-                'CZ': 'República Checa', 'CH': 'Suiça', 'DE': 'Alemanha', 'FR': 'França',
-                'ES': 'Espanha', 'IT': 'Itália', 'GB': 'Reino Unido', 'UK': 'Reino Unido',
-                'US': 'Estados Unidos da América', 'USA': 'Estados Unidos da América',
-                'CA': 'Canadá', 'NL': 'Países Baixos(Holanda)', 'BE': 'Bélgica', 'PT': 'Portugal'
-            }
-            for k, v in mapa.items():
-                if k in t: return v
-            return 'Portugal'
+        # Cálculos Casa da Ribeira
+        rc_reservas = len(df_rc)
+        rc_hospedes = int(df_rc['Hospedes'].sum())
+        rc_dormidas = int(df_rc['Dormidas'].sum())
+        rc_noites = int(df_rc['Número de noites'].sum())
+        rc_rendimento = int(round(df_rc['Preço_Clean'].sum()))
 
-        df['Pais_Nome'] = df.apply(lambda row: extrair_pais_txt(str(row.get('Endereço','')) + ' ' + str(row.get('Notas',''))), axis=1)
+        # Cálculos Porto Bay Villa
+        pb_reservas = len(df_pb)
+        pb_hospedes = int(df_pb['Hospedes'].sum())
+        pb_dormidas = int(df_pb['Dormidas'].sum())
+        pb_noites = int(df_pb['Número de noites'].sum())
+        pb_rendimento = int(round(df_pb['Preço_Clean'].sum()))
 
-        def gerar_q1(sub_df):
-            res = {}
-            for pais, group in sub_df.groupby('Pais_Nome'):
-                h = int(group['Hospedes'].sum())
-                d = int(group['Dormidas'].sum())
-                res[pais] = {"hospedesEntraram": h, "hospedesDormiram": h, "dormidas": d}
-            return res
-
-        relatorio = {
-          "unidadesEstatisticas": {
-            "1998_Casa_da_Ribeira_Cottage": {
-              "idSREA": "1998",
-              "nome": "Casa da Ribeira Cottage (Suites RC)",
-              "diasAberturaBC107": 31,
-              "quadro1_permanenciaHospedes": gerar_q1(df_rc),
-              "quadro2_totais": {
-                "totalHospedesEntraram": int(df_rc['Hospedes'].sum()),
-                "totalDormidas": int(df_rc['Dormidas'].sum()),
-                "totalNoitesUtilizacao_V103": int(df_rc['Número de noites'].sum())
-              },
-              "quadro2_3_rendimentos": {
-                "V150_rendimentoTotalEUR": int(round(df_rc['Preço_Clean'].sum())),
-                "V151_reditosAposentoEUR": int(round(df_rc['Preço_Clean'].sum())),
-                "V152_reditosRestauracaoEUR": 0
-              }
-            },
-            "3836_Porto_Bay_Villa": {
-              "idSREA": "3836",
-              "nome": "Porto Bay Villa",
-              "diasAberturaBC107": 31,
-              "quadro1_permanenciaHospedes": gerar_q1(df_pb),
-              "quadro2_totais": {
-                "totalHospedesEntraram": int(df_pb['Hospedes'].sum()),
-                "totalDormidas": int(df_pb['Dormidas'].sum()),
-                "totalNoitesUtilizacao_V120": int(df_pb['Número de noites'].sum())
-              },
-              "quadro2_3_rendimentos": {
-                "V150_rendimentoTotalEUR": int(round(df_pb['Preço_Clean'].sum())),
-                "V151_reditosAposentoEUR": int(round(df_pb['Preço_Clean'].sum())),
-                "V152_reditosRestauracaoEUR": 0
-              }
-            }
-          }
-        }
-
-        st.success(f"Ficheiro processado com sucesso! Encontradas **{len(df)} reservas** no total.")
+        # Mensagem de sucesso personalizada com contagens separadas
+        st.success(f"Ficheiro processado com sucesso! Total de {rc_reservas} reservas para Casa da Ribeira e {pb_reservas} reservas para Porto Bay Villa.")
         
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("Casa da Ribeira (ID 1998)", f"{len(df_rc)} reservas", f"{int(round(df_rc['Preço_Clean'].sum()))} €")
-        with col2:
-            st.metric("Porto Bay Villa (ID 3836)", f"{len(df_pb)} reservas", f"{int(round(df_pb['Preço_Clean'].sum()))} €")
+        st.markdown("---")
+        st.subheader("📋 Relatório Final para o SREA")
 
-        json_str = json.dumps(relatorio, indent=2, ensure_ascii=False)
-        
-        st.subheader("Resultado JSON (Pronto para o SREA)")
-        st.code(json_str, language='json')
-        
+        # Texto formatado limpo
+        relatorio_texto = f"""- Casa da Ribeira Cottage (ID 1998 — {rc_reservas} Reservas):
+  - Total Hóspedes: {rc_hospedes}
+  - Total Dormidas: {rc_dormidas}
+  - Noites de Utilização (V103): {rc_noites}
+  - Rendimento Total (V150/V151): {rc_rendimento:,} €
+- Porto Bay Villa (ID 3836 — {pb_reservas} Reservas):
+  - Total Hóspedes: {pb_hospedes}
+  - Total Dormidas: {pb_dormidas}
+  - Noites de Utilização (V120): {pb_noites}
+  - Rendimento Total (V150/V151): {pb_rendimento:,} €"""
+
+        st.code(relatorio_texto, language="markdown")
+
         st.download_button(
-            label="📥 Descarregar Ficheiro JSON",
-            data=json_str,
-            file_name="relatorio_srea.json",
-            mime="application/json"
+            label="📥 Descarregar Relatório em Texto",
+            data=relatorio_texto,
+            file_name="relatorio_srea_resumo.txt",
+            mime="text/plain"
         )
 
     except Exception as e:
