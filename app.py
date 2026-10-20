@@ -30,8 +30,10 @@ if uploaded_file is not None:
     try:
         df = pd.read_csv(uploaded_file, sep=';', encoding='utf-8-sig')
         
+        # Limpeza do preço bruto
         df['Preço_Bruto'] = df['Preço'].astype(str).str.replace('€','', regex=False).str.replace(',','.', regex=False).str.strip().astype(float)
         
+        # Extração de taxa turística nas notas (ex: "Cobrar 12€ Tx Turistica")
         def extrair_taxa_turistica(nota):
             if pd.isna(nota):
                 return 0.0
@@ -41,6 +43,8 @@ if uploaded_file is not None:
             return 0.0
 
         df['Taxa_Turistica'] = df['Notas'].apply(extrair_taxa_turistica)
+        
+        # Cálculo do rendimento líquido: (Preço Bruto - Taxa Turística) / 1.04 (retirando 4% de IVA)
         df['Preço_Liquido'] = (df['Preço_Bruto'] - df['Taxa_Turistica']) / 1.04
 
         df['Hospedes'] = df['Adultos'].fillna(0) + df['Crianças'].fillna(0)
