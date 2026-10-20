@@ -86,11 +86,11 @@ if uploaded_file is not None:
         st.markdown("---")
         st.subheader("📋 Quadro 1 (Permanência por País) e Totais para o SREA")
 
-        def gerar_bloco_unidade(nome_unidade, id_unidade, num_res, hospedes, dormidas, noites, rendimento, sub_df):
+        def gerar_bloco_unidade(nome_unidade, id_unidade, num_res, hospedes, dormidas, noites, rendimento, sub_df, var_noites):
             linhas = [
                 f"UNIDADE: {nome_unidade} (ID {id_unidade} — {num_res} Reservas)",
                 f"  -> Totais Gerais: Hóspedes: {hospedes} | Dormidas: {dormidas}",
-                f"  -> Noites (V103/V120): {noites} | Rendimento (V150/V151): {rendimento:,} €",
+                f"  -> Noites ({var_noites}): {noites} | Rendimento (V150/V151): {rendimento:,} €",
                 f"  -> Quadro 1 (Permanência por País):"
             ]
             
@@ -110,8 +110,8 @@ if uploaded_file is not None:
                 
             return "\n".join(linhas)
 
-        rc_bloco = gerar_bloco_unidade("Casa da Ribeira Cottage", "1998", rc_reservas, rc_hospedes, rc_dormidas, rc_noites, rc_rendimento, df_rc)
-        pb_bloco = gerar_bloco_unidade("Porto Bay Villa", "3836", pb_reservas, pb_hospedes, pb_dormidas, pb_noites, pb_rendimento, df_pb)
+        rc_bloco = gerar_bloco_unidade("Casa da Ribeira Cottage", "1998", rc_reservas, rc_hospedes, rc_dormidas, rc_noites, rc_rendimento, df_rc, "V103")
+        pb_bloco = gerar_bloco_unidade("Porto Bay Villa", "3836", pb_reservas, pb_hospedes, pb_dormidas, pb_noites, pb_rendimento, df_pb, "V120")
 
         relatorio_texto = rc_bloco + "\n\n" + "="*50 + "\n\n" + pb_bloco
 
