@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import re
 
 st.set_page_config(page_title="SREA Açores - Resumo Estatístico", page_icon="📊", layout="centered")
 
@@ -29,7 +30,23 @@ if uploaded_file is not None:
     try:
         df = pd.read_csv(uploaded_file, sep=';', encoding='utf-8-sig')
         
-        df['Preço_Clean'] = df['Preço'].astype(str).str.replace('€','', regex=False).str.replace(',','.', regex=False).str.strip().astype(float)
+        # Limpeza do preço bruto
+        df['Preço_Bruto'] = df['Preço'].astype(str).str.replace('€','', regex=False).str.replace(',','.', regex=False).str.strip().astype(float)
+        
+        # Extração de taxa turística nas notas (ex: "Cobrar 12€ Tx Turistica")
+        def extrair_taxa_turistica(nota):
+            if pd.isna(nota):
+                return 0.0
+            match = re.search(r'(\d+)\s*€', str(nota))
+            if match and ('turistica' in str(nota).lower() or 'tx' in str(nota).lower()):
+                return float(match.group(1))
+            return 0.0
+
+        df['Taxa_Turistica'] = df['Notas'].apply(extrair_taxa_turistica)
+        
+        # Cálculo do rendimento líquido: (Preço Bruto - Taxa Turística) / 1.04 (retirando 4% de IVA)
+        df['Preço_Liquido'] = (df['Preço_Bruto'] - df['Taxa_Turistica']) / 1.04
+
         df['Hospedes'] = df['Adultos'].fillna(0) + df['Crianças'].fillna(0)
         df['Dormidas'] = df['Hospedes'] * df['Número de noites']
 
@@ -37,33 +54,47 @@ if uploaded_file is not None:
         df_pb = df[df['Alojamento'].str.contains('Porto|Bay|Villa', case=False, na=False)].copy()
 
         def extrair_pais(row):
-            texto = " ".join([
+            texto_prioritario = " ".join([
+                str(row.get('Telefone', '')),
                 str(row.get('Endereço', '')),
                 str(row.get('Notas', '')),
-                str(row.get('Hóspede', '')),
-                str(row.get('Portal', '')),
-                str(row.get('Instruções do assistente', '')),
-                str(row.get('Email', ''))
+                str(row.get('Idioma', '')),
+                str(row.get('Portal', ''))
             ]).upper()
 
-            mapa_paises = {
-                'BRA': 'Brasil', 'BRASIL': 'Brasil', '+55': 'Brasil',
-                'CHE': 'Suíça', 'CH': 'Suíça', 'SUIÇA': 'Suíça', 'SUIZA': 'Suíça', '+41': 'Suíça',
-                'USA': 'Estados Unidos da América', 'US': 'Estados Unidos da América', 'ESTADOS UNIDOS': 'Estados Unidos da América', '+1': 'Estados Unidos da América',
-                'FRA': 'França', 'FR': 'França', 'FRANÇA': 'França', '+33': 'França',
-                'GBR': 'Reino Unido', 'UK': 'Reino Unido', 'GB': 'Reino Unido', '+44': 'Reino Unido',
-                'DEU': 'Alemanha', 'DE': 'Alemanha', 'ALEMANHA': 'Alemanha', '+49': 'Alemanha',
-                'ESP': 'Espanha', 'ES': 'Espanha', 'ESPANHA': 'Espanha', '+34': 'Espanha',
-                'ITA': 'Itália', 'IT': 'Itália', 'ITÁLIA': 'Itália', '+39': 'Itália',
-                'NLD': 'Países Baixos(Holanda)', 'NL': 'Países Baixos(Holanda)', 'HOLANDA': 'Países Baixos(Holanda)', 'NETHERLANDS': 'Países Baixos(Holanda)', '+31': 'Países Baixos(Holanda)',
-                'CAN': 'Canadá', 'CA': 'Canadá',
-                'ISR': 'Israel', 'IL': 'Israel', '+972': 'Israel',
-                'PRT': 'Portugal', 'PORTUGAL': 'Portugal', '+351': 'Portugal'
-            }
+            texto_secundario = " ".join([
+                str(row.get('Hóspede', '')),
+                str(row.get('Email', '')),
+                str(row.get('Instruções do assistente', ''))
+            ]).upper()
 
-            for chave, pais in mapa_paises.items():
-                if chave in texto:
-                    return pais
+            texto = texto_prioritario + " " + texto_secundario
+
+            if any(k in texto for k in ['+31', '0031', '.NL', 'NETHERLANDS', 'HOLANDA', 'PAÍSES BAIXOS']):
+                return 'Países Baixos(Holanda)'
+            if any(k in texto for k in ['+55', 'BRASIL', 'BRA ']):
+                return 'Brasil'
+            if any(k in texto for k in ['+41', 'SUIÇA', 'SUIZA', 'CHE']):
+                return 'Suíça'
+            if any(k in texto for k in ['+1', 'ESTADOS UNIDOS', 'USA']):
+                return 'Estados Unidos da América'
+            if any(k in texto for k in ['+33', 'FRANÇA', 'FRANCE', 'FRA ']):
+                return 'França'
+            if any(k in texto for k in ['+44', 'REINO UNIDO', 'UK', 'GBR']):
+                return 'Reino Unido'
+            if any(k in texto for k in ['+49', 'ALEMANHA', 'GERMANY', 'DEU']):
+                return 'Alemanha'
+            if any(k in texto for k in ['+34', 'ESPANHA', 'SPAIN']):
+                return 'Espanha'
+            if any(k in texto for k in ['+39', 'ITÁLIA', 'ITALIA']):
+                return 'Itália'
+            if any(k in texto for k in ['+351', 'PORTUGAL', 'PRT ']):
+                return 'Portugal'
+            if any(k in texto for k in ['+46', 'SUÉCIA', 'SUECIA', 'SWEDEN']):
+                return 'Suécia'
+            if any(k in texto for k in ['+43', 'ÁUSTRIA', 'AUSTRIA']):
+                return 'Áustria'
+
             return 'Portugal'
 
         df_rc['Pais'] = df_rc.apply(extrair_pais, axis=1)
@@ -73,13 +104,13 @@ if uploaded_file is not None:
         rc_hospedes = int(df_rc['Hospedes'].sum())
         rc_dormidas = int(df_rc['Dormidas'].sum())
         rc_noites = int(df_rc['Número de noites'].sum())
-        rc_rendimento = int(round(df_rc['Preço_Clean'].sum()))
+        rc_rendimento = int(round(df_rc['Preço_Liquido'].sum()))
 
         pb_reservas = len(df_pb)
         pb_hospedes = int(df_pb['Hospedes'].sum())
         pb_dormidas = int(df_pb['Dormidas'].sum())
         pb_noites = int(df_pb['Número de noites'].sum())
-        pb_rendimento = int(round(df_pb['Preço_Clean'].sum()))
+        pb_rendimento = int(round(df_pb['Preço_Liquido'].sum()))
 
         st.success(f"Ficheiro processado com sucesso! Total de {rc_reservas} reservas para Casa da Ribeira e {pb_reservas} reservas para Porto Bay Villa.")
         
