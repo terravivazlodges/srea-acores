@@ -4,7 +4,7 @@ import pandas as pd
 st.set_page_config(page_title="SREA Açores - Resumo Estatístico", page_icon="📊", layout="centered")
 
 st.title("📊 SREA Açores — Resumo Estatístico Smoobu")
-st.write("Arraste o ficheiro **CSV de reservas exportado do Smoobu** para obter o relatório final detalhado.")
+st.write("Arraste o ficheiro **CSV de reservas exportado do Smoobu** para obter o relatório final detalhado por país.")
 
 uploaded_file = st.file_uploader("Selecione o ficheiro CSV (.csv)", type="csv")
 
@@ -27,7 +27,7 @@ if uploaded_file is not None:
                 'BRA': 'Brasil', 'BRASIL': 'Brasil',
                 'CHE': 'Suíça', 'CH': 'Suíça', 'SUIÇA': 'Suíça', 'SUIZA': 'Suíça',
                 'USA': 'Estados Unidos da América', 'US': 'Estados Unidos da América', 'ESTADOS UNIDOS': 'Estados Unidos da América',
-                'FRA': 'França', 'FR': 'França', ' FRANÇA ': 'França',
+                'FRA': 'França', 'FR': 'França',
                 'GBR': 'Reino Unido', 'UK': 'Reino Unido', 'GB': 'Reino Unido',
                 'DEU': 'Alemanha', 'DE': 'Alemanha', 'ALEMANHA': 'Alemanha',
                 'ESP': 'Espanha', 'ES': 'Espanha', 'ESPANHA': 'Espanha',
@@ -39,19 +39,18 @@ if uploaded_file is not None:
             for k, v in mapa.items():
                 if k in texto:
                     return v
-            return 'Portugal' # Padrão se não especificado
+            return 'Portugal'
 
         df_rc['Pais'] = df_rc.apply(extrair_pais, axis=1)
         df_pb['Pais'] = df_pb.apply(extrair_pais, axis=1)
 
-        # Cálculos Totais Casa da Ribeira
+        # Totais gerais
         rc_reservas = len(df_rc)
         rc_hospedes = int(df_rc['Hospedes'].sum())
         rc_dormidas = int(df_rc['Dormidas'].sum())
         rc_noites = int(df_rc['Número de noites'].sum())
         rc_rendimento = int(round(df_rc['Preço_Clean'].sum()))
 
-        # Cálculos Totais Porto Bay Villa
         pb_reservas = len(df_pb)
         pb_hospedes = int(df_pb['Hospedes'].sum())
         pb_dormidas = int(df_pb['Dormidas'].sum())
@@ -61,42 +60,43 @@ if uploaded_file is not None:
         st.success(f"Ficheiro processado com sucesso! Total de {rc_reservas} reservas para Casa da Ribeira e {pb_reservas} reservas para Porto Bay Villa.")
         
         st.markdown("---")
-        st.subheader("📋 Relatório Final Detalhado para o SREA")
+        st.subheader("📋 Quadro 1 (Permanência por País) e Totais para o SREA")
 
-        # Função para agrupar por país para o Quadro 1
-        def gerar_linhas_pais(sub_df):
+        # Função para gerar as linhas exatamente com as 3 colunas do SREA
+        def gerar_linhas_quadro1(sub_df):
             agrupado = sub_df.groupby('Pais').agg(
-                hospedes=('Hospedes', 'sum'),
+                hospedes_entraram=('Hospedes', 'sum'),
                 dormidas=('Dormidas', 'sum')
             ).reset_index()
             
             linhas = []
             for _, row in agrupado.iterrows():
-                h = int(row['hospedes'])
-                d = int(row['dormidas'])
-                linhas.append(f"  - {row['Pais']}: {h} Hóspedes entram/dormem | {d} Dormidas")
+                he = int(row['hospedes_entraram'])
+                hd = he # Hóspedes que dormiram (igual aos que entraram por predefinição)
+                dor = int(row['dormidas'])
+                linhas.append(f"  - {row['Pais']}:\n      - Nº Hóspedes entram: {he}\n      - Nº Hóspedes dormem: {hd}\n      - Nº Dormidas: {dor}")
             return "\n".join(linhas)
 
-        rc_paises_txt = gerar_linhas_pais(df_rc)
-        pb_paises_txt = gerar_linhas_pais(df_pb)
+        rc_q1_txt = gerar_linhas_quadro1(df_rc)
+        pb_q1_txt = gerar_linhas_quadro1(df_pb)
 
         # Texto estruturado final
         relatorio_texto = f"""- Casa da Ribeira Cottage (ID 1998 — {rc_reservas} Reservas):
-  - Totais: {rc_hospedes} Hóspedes | {rc_dormidas} Dormidas | Noites (V103): {rc_noites} | Rendimento (V150/V151): {rc_rendimento:,} €
+  - Totais Gerais: Hóspedes: {rc_hospedes} | Dormidas: {rc_dormidas} | Noites (V103): {rc_noites} | Rendimento (V150/V151): {rc_rendimento:,} €
   - Quadro 1 (Permanência por País):
-{rc_paises_txt}
+{rc_q1_txt}
 
 - Porto Bay Villa (ID 3836 — {pb_reservas} Reservas):
-  - Totais: {pb_hospedes} Hóspedes | {pb_dormidas} Dormidas | Noites (V120): {pb_noites} | Rendimento (V150/V151): {pb_rendimento:,} €
+  - Totais Gerais: Hóspedes: {pb_hospedes} | Dormidas: {pb_dormidas} | Noites (V120): {pb_noites} | Rendimento (V150/V151): {pb_rendimento:,} €
   - Quadro 1 (Permanência por País):
-{pb_paises_txt}"""
+{pb_q1_txt}"""
 
         st.code(relatorio_texto, language="markdown")
 
         st.download_button(
             label="📥 Descarregar Relatório Completo em Texto",
             data=relatorio_texto,
-            file_name="relatorio_srea_detalhado.txt",
+            file_name="relatorio_srea_quadro1.txt",
             mime="text/plain"
         )
 
