@@ -3,7 +3,6 @@ import pandas as pd
 
 st.set_page_config(page_title="SREA Açores - Resumo Estatístico", page_icon="📊", layout="centered")
 
-# CSS para garantir que o texto se ajusta à largura do ecrã sem barras horizontais
 st.markdown("""
     <style>
     .report-box {
@@ -15,6 +14,8 @@ st.markdown("""
         font-family: monospace;
         white-space: pre-wrap;
         word-break: break-word;
+        font-size: 14px;
+        line-height: 1.5;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -32,7 +33,6 @@ if uploaded_file is not None:
         df['Hospedes'] = df['Adultos'].fillna(0) + df['Crianças'].fillna(0)
         df['Dormidas'] = df['Hospedes'] * df['Número de noites']
 
-        # Separação por unidade
         df_rc = df[df['Alojamento'].str.contains('RC|Ribeira|Suite|Green|Blue|Garden', case=False, na=False)].copy()
         df_pb = df[df['Alojamento'].str.contains('Porto|Bay|Villa', case=False, na=False)].copy()
 
@@ -69,7 +69,6 @@ if uploaded_file is not None:
         df_rc['Pais'] = df_rc.apply(extrair_pais, axis=1)
         df_pb['Pais'] = df_pb.apply(extrair_pais, axis=1)
 
-        # Totais gerais
         rc_reservas = len(df_rc)
         rc_hospedes = int(df_rc['Hospedes'].sum())
         rc_dormidas = int(df_rc['Dormidas'].sum())
@@ -80,46 +79,42 @@ if uploaded_file is not None:
         pb_hospedes = int(df_pb['Hospedes'].sum())
         pb_dormidas = int(df_pb['Dormidas'].sum())
         pb_noites = int(df_pb['Número de noites'].sum())
-        pb_rendimento = int(round(pb_prep := df_pb['Preço_Clean'].sum())) if 'pb_prep' in locals() else int(round(df_pb['Preço_Clean'].sum()))
+        pb_rendimento = int(round(df_pb['Preço_Clean'].sum()))
 
         st.success(f"Ficheiro processado com sucesso! Total de {rc_reservas} reservas para Casa da Ribeira e {pb_reservas} reservas para Porto Bay Villa.")
         
         st.markdown("---")
         st.subheader("📋 Quadro 1 (Permanência por País) e Totais para o SREA")
 
-        def gerar_linhas_quadro1(sub_df):
+        def gerar_bloco_unidade(nome_unidade, id_unidade, num_res, hospedes, dormidas, noites, rendimento, sub_df):
+            linhas = [
+                f"UNIDADE: {nome_unidade} (ID {id_unidade} — {num_res} Reservas)",
+                f"  -> Totais Gerais: Hóspedes: {hospedes} | Dormidas: {dormidas}",
+                f"  -> Noites (V103/V120): {noites} | Rendimento (V150/V151): {rendimento:,} €",
+                f"  -> Quadro 1 (Permanência por País):"
+            ]
+            
             agrupado = sub_df.groupby('Pais').agg(
                 hospedes_entraram=('Hospedes', 'sum'),
                 dormidas=('Dormidas', 'sum')
             ).reset_index()
             
-            linhas = []
             for _, row in agrupado.iterrows():
                 he = int(row['hospedes_entraram'])
                 hd = he 
                 dor = int(row['dormidas'])
-                linhas.append(f"  - {row['Pais']}:")
-                linhas.append(f"    - Nº Hóspedes entram no mês: {he}")
-                linhas.append(f"    - Nº Hóspedes dormem no mês a): {hd}")
-                linhas.append(f"    - Nº de Dormidas (Hóspedes x Noites): {dor}")
+                linhas.append(f"     [País] {row['Pais']}")
+                linhas.append(f"       - Nº Hóspedes entram no mês: {he}")
+                linhas.append(f"       - Nº Hóspedes dormem no mês a): {hd}")
+                linhas.append(f"       - Nº de Dormidas (Hóspedes x Noites): {dor}")
+                
             return "\n".join(linhas)
 
-        rc_q1_txt = gerar_linhas_quadro1(df_rc)
-        pb_q1_txt = gerar_linhas_quadro1(df_pb)
+        rc_bloco = gerar_bloco_unidade("Casa da Ribeira Cottage", "1998", rc_reservas, rc_hospedes, rc_dormidas, rc_noites, rc_rendimento, df_rc)
+        pb_bloco = gerar_bloco_unidade("Porto Bay Villa", "3836", pb_reservas, pb_hospedes, pb_dormidas, pb_noites, pb_rendimento, df_pb)
 
-        relatorio_texto = f"""- Casa da Ribeira Cottage (ID 1998 — {rc_reservas} Reservas):
-  - Totais Gerais: Hóspedes: {rc_hospedes} | Dormidas: {rc_dormidas} 
-  - Noites (V103): {rc_noites} | Rendimento (V150/V151): {rc_rendimento:,} €
-  - Quadro 1 (Permanência por País):
-{rc_q1_txt}
+        relatorio_texto = f"{rc_bloco}\n\n{'='*50}\n\n{pb_bloco}"
 
-- Porto Bay Villa (ID 3836 — {pb_reservas} Reservas):
-  - Totais Gerais: Hóspedes: {pb_hospedes} | Dormidas: {pb_dormidas} 
-  - Noites (V120): {pb_noites} | Rendimento (V150/V151): {pb_rendimento:,} €
-  - Quadro 1 (Permanência por País):
-{pb_q1_txt}"""
-
-        # Exibição sem barras horizontais (quebra automática de linha)
         st.markdown(f'<div class="report-box">{relatorio_texto}</div>', unsafe_allow_html=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
