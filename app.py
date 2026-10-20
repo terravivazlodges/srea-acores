@@ -20,26 +20,39 @@ if uploaded_file is not None:
         df_rc = df[df['Alojamento'].str.contains('RC|Ribeira|Suite|Green|Blue|Garden', case=False, na=False)].copy()
         df_pb = df[df['Alojamento'].str.contains('Porto|Bay|Villa', case=False, na=False)].copy()
 
-        # Detetar o país com base nas colunas Endereço / Notas / Hóspede
+        # Deteção alargada a todas as colunas textuais relevantes (Endereço, Notas, Hóspede, Portal, Instruções, etc.)
         def extrair_pais(row):
-            texto = f"{str(row.get('Endereço',''))} {str(row.get('Notas',''))} {str(row.get('Hóspede',''))}".upper()
-            mapa = {
-                'BRA': 'Brasil', 'BRASIL': 'Brasil',
-                'CHE': 'Suíça', 'CH': 'Suíça', 'SUIÇA': 'Suíça', 'SUIZA': 'Suíça',
-                'USA': 'Estados Unidos da América', 'US': 'Estados Unidos da América', 'ESTADOS UNIDOS': 'Estados Unidos da América',
-                'FRA': 'França', 'FR': 'França',
-                'GBR': 'Reino Unido', 'UK': 'Reino Unido', 'GB': 'Reino Unido',
-                'DEU': 'Alemanha', 'DE': 'Alemanha', 'ALEMANHA': 'Alemanha',
-                'ESP': 'Espanha', 'ES': 'Espanha', 'ESPANHA': 'Espanha',
-                'ITA': 'Itália', 'IT': 'Itália', 'ITÁLIA': 'Itália',
-                'NLD': 'Países Baixos(Holanda)', 'NL': 'Países Baixos(Holanda)', 'HOLANDA': 'Países Baixos(Holanda)',
+            # Junta todo o texto relevante da linha numa única string em maiúsculas para análise
+            texto = " ".join([
+                str(row.get('Endereço', '')),
+                str(row.get('Notas', '')),
+                str(row.get('Hóspede', '')),
+                str(row.get('Portal', '')),
+                str(row.get('Instruções do assistente', '')),
+                str(row.get('Email', ''))
+            ]).upper()
+
+            # Mapeamento expandido de palavras-chave, indicativos ou códigos de país
+            mapa_paises = {
+                'BRA': 'Brasil', 'BRASIL': 'Brasil', '+55': 'Brasil',
+                'CHE': 'Suíça', 'CH': 'Suíça', 'SUIÇA': 'Suíça', 'SUIZA': 'Suíça', '+41': 'Suíça',
+                'USA': 'Estados Unidos da América', 'US': 'Estados Unidos da América', 'ESTADOS UNIDOS': 'Estados Unidos da América', '+1': 'Estados Unidos da América',
+                'FRA': 'França', 'FR': 'França', 'FRANÇA': 'França', '+33': 'França',
+                'GBR': 'Reino Unido', 'UK': 'Reino Unido', 'GB': 'Reino Unido', '+44': 'Reino Unido',
+                'DEU': 'Alemanha', 'DE': 'Alemanha', 'ALEMANHA': 'Alemanha', '+49': 'Alemanha',
+                'ESP': 'Espanha', 'ES': 'Espanha', 'ESPANHA': 'Espanha', '+34': 'Espanha',
+                'ITA': 'Itália', 'IT': 'Itália', 'ITÁLIA': 'Itália', '+39': 'Itália',
+                'NLD': 'Países Baixos(Holanda)', 'NL': 'Países Baixos(Holanda)', 'HOLANDA': 'Países Baixos(Holanda)', 'NETHERLANDS': 'Países Baixos(Holanda)', '+31': 'Países Baixos(Holanda)',
                 'CAN': 'Canadá', 'CA': 'Canadá',
-                'ISR': 'Israel', 'IL': 'Israel'
+                'ISR': 'Israel', 'IL': 'Israel', '+972': 'Israel',
+                'PRT': 'Portugal', 'PORTUGAL': 'Portugal', '+351': 'Portugal'
             }
-            for k, v in mapa.items():
-                if k in texto:
-                    return v
-            return 'Portugal'
+
+            for chave, pais in mapa_paises.items():
+                if chave in texto:
+                    return pais
+                    
+            return 'Portugal' # Valor por omissão caso não detete nenhum indicador estrangeiro
 
         df_rc['Pais'] = df_rc.apply(extrair_pais, axis=1)
         df_pb['Pais'] = df_pb.apply(extrair_pais, axis=1)
@@ -62,7 +75,6 @@ if uploaded_file is not None:
         st.markdown("---")
         st.subheader("📋 Quadro 1 (Permanência por País) e Totais para o SREA")
 
-        # Função para gerar as linhas exatamente com as 3 colunas do SREA
         def gerar_linhas_quadro1(sub_df):
             agrupado = sub_df.groupby('Pais').agg(
                 hospedes_entraram=('Hospedes', 'sum'),
@@ -72,15 +84,17 @@ if uploaded_file is not None:
             linhas = []
             for _, row in agrupado.iterrows():
                 he = int(row['hospedes_entraram'])
-                hd = he # Hóspedes que dormiram (igual aos que entraram por predefinição)
+                hd = he 
                 dor = int(row['dormidas'])
-                linhas.append(f"  - {row['Pais']}:\n      - Nº Hóspedes entram: {he}\n      - Nº Hóspedes dormem: {hd}\n      - Nº Dormidas: {dor}")
+                linhas.append(f"  - {row['Pais']}:")
+                linhas.append(f"    - Nº Hóspedes entram no mês: {he}")
+                linhas.append(f"    - Nº Hóspedes dormem no mês a): {hd}")
+                linhas.append(f"    - Nº de Dormidas (Hóspedes x Noites): {dor}")
             return "\n".join(linhas)
 
         rc_q1_txt = gerar_linhas_quadro1(df_rc)
         pb_q1_txt = gerar_linhas_quadro1(df_pb)
 
-        # Texto estruturado final
         relatorio_texto = f"""- Casa da Ribeira Cottage (ID 1998 — {rc_reservas} Reservas):
   - Totais Gerais: Hóspedes: {rc_hospedes} | Dormidas: {rc_dormidas} | Noites (V103): {rc_noites} | Rendimento (V150/V151): {rc_rendimento:,} €
   - Quadro 1 (Permanência por País):
