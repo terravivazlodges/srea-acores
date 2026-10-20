@@ -113,7 +113,7 @@ if uploaded_file is not None:
         rc_bloco = gerar_bloco_unidade("Casa da Ribeira Cottage", "1998", rc_reservas, rc_hospedes, rc_dormidas, rc_noites, rc_rendimento, df_rc)
         pb_bloco = gerar_bloco_unidade("Porto Bay Villa", "3836", pb_reservas, pb_hospedes, pb_dormidas, pb_noites, pb_rendimento, df_pb)
 
-        relatorio_texto = f"{rc_bloco}\n\n{'='*50}\n\n{pb_bloco}"
+        relatorio_texto = rc_bloco + "\n\n" + "="*50 + "\n\n" + pb_bloco
 
         st.markdown(f'<div class="report-box">{relatorio_texto}</div>', unsafe_allow_html=True)
 
