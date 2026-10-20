@@ -3,6 +3,22 @@ import pandas as pd
 
 st.set_page_config(page_title="SREA Açores - Resumo Estatístico", page_icon="📊", layout="centered")
 
+# CSS para garantir que o texto se ajusta à largura do ecrã sem barras horizontais
+st.markdown("""
+    <style>
+    .report-box {
+        background-color: #0e1117;
+        border: 1px solid #262730;
+        padding: 20px;
+        border-radius: 10px;
+        color: #fafafa;
+        font-family: monospace;
+        white-space: pre-wrap;
+        word-break: break-word;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
 st.title("📊 SREA Açores — Resumo Estatístico Smoobu")
 st.write("Arraste o ficheiro **CSV de reservas exportado do Smoobu** para obter o relatório final detalhado por país.")
 
@@ -20,9 +36,7 @@ if uploaded_file is not None:
         df_rc = df[df['Alojamento'].str.contains('RC|Ribeira|Suite|Green|Blue|Garden', case=False, na=False)].copy()
         df_pb = df[df['Alojamento'].str.contains('Porto|Bay|Villa', case=False, na=False)].copy()
 
-        # Deteção alargada a todas as colunas textuais relevantes (Endereço, Notas, Hóspede, Portal, Instruções, etc.)
         def extrair_pais(row):
-            # Junta todo o texto relevante da linha numa única string em maiúsculas para análise
             texto = " ".join([
                 str(row.get('Endereço', '')),
                 str(row.get('Notas', '')),
@@ -32,7 +46,6 @@ if uploaded_file is not None:
                 str(row.get('Email', ''))
             ]).upper()
 
-            # Mapeamento expandido de palavras-chave, indicativos ou códigos de país
             mapa_paises = {
                 'BRA': 'Brasil', 'BRASIL': 'Brasil', '+55': 'Brasil',
                 'CHE': 'Suíça', 'CH': 'Suíça', 'SUIÇA': 'Suíça', 'SUIZA': 'Suíça', '+41': 'Suíça',
@@ -51,8 +64,7 @@ if uploaded_file is not None:
             for chave, pais in mapa_paises.items():
                 if chave in texto:
                     return pais
-                    
-            return 'Portugal' # Valor por omissão caso não detete nenhum indicador estrangeiro
+            return 'Portugal'
 
         df_rc['Pais'] = df_rc.apply(extrair_pais, axis=1)
         df_pb['Pais'] = df_pb.apply(extrair_pais, axis=1)
@@ -68,7 +80,7 @@ if uploaded_file is not None:
         pb_hospedes = int(df_pb['Hospedes'].sum())
         pb_dormidas = int(df_pb['Dormidas'].sum())
         pb_noites = int(df_pb['Número de noites'].sum())
-        pb_rendimento = int(round(df_pb['Preço_Clean'].sum()))
+        pb_rendimento = int(round(pb_prep := df_pb['Preço_Clean'].sum())) if 'pb_prep' in locals() else int(round(df_pb['Preço_Clean'].sum()))
 
         st.success(f"Ficheiro processado com sucesso! Total de {rc_reservas} reservas para Casa da Ribeira e {pb_reservas} reservas para Porto Bay Villa.")
         
@@ -96,17 +108,21 @@ if uploaded_file is not None:
         pb_q1_txt = gerar_linhas_quadro1(df_pb)
 
         relatorio_texto = f"""- Casa da Ribeira Cottage (ID 1998 — {rc_reservas} Reservas):
-  - Totais Gerais: Hóspedes: {rc_hospedes} | Dormidas: {rc_dormidas} | Noites (V103): {rc_noites} | Rendimento (V150/V151): {rc_rendimento:,} €
+  - Totais Gerais: Hóspedes: {rc_hospedes} | Dormidas: {rc_dormidas} 
+  - Noites (V103): {rc_noites} | Rendimento (V150/V151): {rc_rendimento:,} €
   - Quadro 1 (Permanência por País):
 {rc_q1_txt}
 
 - Porto Bay Villa (ID 3836 — {pb_reservas} Reservas):
-  - Totais Gerais: Hóspedes: {pb_hospedes} | Dormidas: {pb_dormidas} | Noites (V120): {pb_noites} | Rendimento (V150/V151): {pb_rendimento:,} €
+  - Totais Gerais: Hóspedes: {pb_hospedes} | Dormidas: {pb_dormidas} 
+  - Noites (V120): {pb_noites} | Rendimento (V150/V151): {pb_rendimento:,} €
   - Quadro 1 (Permanência por País):
 {pb_q1_txt}"""
 
-        st.code(relatorio_texto, language="markdown")
+        # Exibição sem barras horizontais (quebra automática de linha)
+        st.markdown(f'<div class="report-box">{relatorio_texto}</div>', unsafe_allow_html=True)
 
+        st.markdown("<br>", unsafe_allow_html=True)
         st.download_button(
             label="📥 Descarregar Relatório Completo em Texto",
             data=relatorio_texto,
