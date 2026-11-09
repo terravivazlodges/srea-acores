@@ -40,21 +40,19 @@ if uploaded_file is not None:
     try:
         filename = uploaded_file.name.lower()
         
-        # Leitura universal de CSV ou Excel
+        # Leitura universal de CSV ou Excel com motores definidos (evita erros do calamine)
         if filename.endswith('.csv'):
-            # Tenta diferentes separadores comuns em CSVs (vírgula, ponto e vírgula, tabulação)
             try:
                 df = pd.read_csv(uploaded_file, sep=';', encoding='utf-8-sig')
             except:
                 uploaded_file.seek(0)
                 df = pd.read_csv(uploaded_file, sep=',', encoding='utf-8-sig')
+        elif filename.endswith('.xls'):
+            df = pd.read_excel(uploaded_file, engine='xlrd')
         else:
-            df = pd.read_excel(uploaded_file)
+            df = pd.read_excel(uploaded_file, engine='openpyxl')
 
         # Normalização genérica de colunas para acomodar Booking, Airbnb e Smoobu
-        colunas_str = " ".join(df.columns).lower()
-        
-        # Mapeamento dinâmico de colunas essenciais
         def encontrar_coluna(opcoes):
             for op in opcoes:
                 for col in df.columns:
@@ -110,7 +108,7 @@ if uploaded_file is not None:
 
         # --- MOTOR INTELIGENTE DE DETEÇÃO DE NACIONALIDADE ---
         def detetar_nacionalidade_inteligente(row):
-            # 1. Verificar colunas diretas de país (Booking country, País, Country, Guest country)
+            # 1. Verificar colunas diretas de país
             for col in df.columns:
                 if any(k in col.lower() for k in ['country', 'país', 'pais', 'nacionalidade']):
                     val = str(row[col]).strip().upper()
@@ -124,7 +122,6 @@ if uploaded_file is not None:
             # 2. Varrimento inteligente de todo o texto da linha (Telefone, Morada, Notas, Email, Idioma)
             texto_completo = " ".join([str(val) for val in row.values if pd.notna(val)]).upper()
 
-            # Mapeamento por Prefixo Telefónico / Domínios / Termos Explícitos
             if any(k in texto_completo for k in ['+31', '0031', '.NL', 'NETHERLANDS', 'HOLANDA', 'PAÍSES BAIXOS']):
                 return 'Países Baixos(Holanda)'
             if any(k in texto_completo for k in ['+55', 'BRASIL', 'BRA ']):
@@ -150,7 +147,7 @@ if uploaded_file is not None:
             if any(k in texto_completo for k in ['+351', 'PORTUGAL', 'PRT ', '.PT']):
                 return 'Portugal'
 
-            return 'Portugal' # Fallback predefinido se não detetar nada
+            return 'Portugal' # Fallback predefinido
 
         df['Pais'] = df.apply(detetar_nacionalidade_inteligente, axis=1)
 
@@ -158,7 +155,6 @@ if uploaded_file is not None:
         df_rc = df[df['Alojamento_Norm'].str.contains('RC|Ribeira|Suite|Green|Blue|Garden', case=False, na=False)].copy()
         df_pb = df[df['Alojamento_Norm'].str.contains('Porto|Bay|Villa', case=False, na=False)].copy()
         
-        # Se não encontrar separação exata pelo nome, divide metade a metade ou trata como geral
         if len(df_rc) == 0 and len(df_pb) == 0:
             df_rc = df.copy()
 
