@@ -40,13 +40,16 @@ if uploaded_file is not None:
     try:
         filename = uploaded_file.name.lower()
         
-        # Leitura universal de CSV ou Excel com tratamento de motores
+        # Leitura universal de CSV ou Excel com tratamento robusto para quebras de linha no Airbnb
         if filename.endswith('.csv'):
             try:
-                df = pd.read_csv(uploaded_file, sep=';', encoding='utf-8-sig')
+                df = pd.read_csv(uploaded_file, sep=';', encoding='utf-8-sig', on_bad_lines='skip')
+                if len(df.columns) <= 1:
+                    uploaded_file.seek(0)
+                    df = pd.read_csv(uploaded_file, sep=',', encoding='utf-8-sig', on_bad_lines='skip')
             except:
                 uploaded_file.seek(0)
-                df = pd.read_csv(uploaded_file, sep=',', encoding='utf-8-sig')
+                df = pd.read_csv(uploaded_file, sep=',', encoding='utf-8-sig', on_bad_lines='skip')
         else:
             try:
                 df = pd.read_excel(uploaded_file, engine='openpyxl')
@@ -72,11 +75,11 @@ if uploaded_file is not None:
         col_criancas = encontrar_coluna(['crianças', 'children', 'kids', '# of children'])
         col_estado = encontrar_coluna(['estado', 'status'])
         
-        # Criação de colunas normalizadas para processamento seguro
+        # Criação de colunas normalizadas para processamento seguro com conversão numérica forçada
         df['Alojamento_Norm'] = df[col_alojamento].astype(str) if col_alojamento else "Geral"
-        df['Noites_Norm'] = df[col_noites].fillna(1).astype(int) if col_noites else 1
-        df['Adultos_Norm'] = df[col_adultos].fillna(1).astype(int) if col_adultos else 1
-        df['Criancas_Norm'] = df[col_criancas].fillna(0).astype(int) if col_criancas else 0
+        df['Noites_Norm'] = pd.to_numeric(df[col_noites], errors='coerce').fillna(1).astype(int) if col_noites else 1
+        df['Adultos_Norm'] = pd.to_numeric(df[col_adultos], errors='coerce').fillna(1).astype(int) if col_adultos else 1
+        df['Criancas_Norm'] = pd.to_numeric(df[col_criancas], errors='coerce').fillna(0).astype(int) if col_criancas else 0
 
         # Filtrar apenas reservas ativas/confirmadas (ignorar canceladas)
         if col_estado:
@@ -95,7 +98,7 @@ if uploaded_file is not None:
             df['Preço_Bruto'] = 0.0
 
         # Extração de taxa turística nas notas/comentários
-        col_notas = encontrar_coluna(['nota', 'comentário', 'comment', 'note', 'instruction'])
+        col_notas = encontrar_coluna(['nota', 'comentário', 'comment', 'note', 'instruction', 'contact'])
         def extrair_taxa_turistica(row):
             texto = ""
             if col_notas and pd.notna(row[col_notas]):
