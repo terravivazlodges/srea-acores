@@ -40,17 +40,24 @@ if uploaded_file is not None:
     try:
         filename = uploaded_file.name.lower()
         
-        # Leitura universal de CSV ou Excel com motores definidos (evita erros do calamine)
+        # Leitura universal com tratamento robusto de formatos
         if filename.endswith('.csv'):
             try:
                 df = pd.read_csv(uploaded_file, sep=';', encoding='utf-8-sig')
             except:
                 uploaded_file.seek(0)
                 df = pd.read_csv(uploaded_file, sep=',', encoding='utf-8-sig')
-        elif filename.endswith('.xls'):
-            df = pd.read_excel(uploaded_file, engine='xlrd')
         else:
-            df = pd.read_excel(uploaded_file, engine='openpyxl')
+            # Tenta ler com openpyxl (funciona para xlsx e muitos xls salvos em formato moderno). 
+            # Se falhar por ser um .xls antigo, dá fallback automático ou avisa de forma amigável.
+            try:
+                df = pd.read_excel(uploaded_file, engine='openpyxl')
+            except Exception:
+                try:
+                    df = pd.read_excel(uploaded_file, engine='xlrd')
+                except Exception as e_xlrd:
+                    st.error(f"Erro ao ler o ficheiro Excel. Se for um ficheiro .xls antigo, certifique-se de que a biblioteca 'xlrd' está incluída no seu requirements.txt. Detalhe: {e_xlrd}")
+                    st.stop()
 
         # Normalização genérica de colunas para acomodar Booking, Airbnb e Smoobu
         def encontrar_coluna(opcoes):
@@ -119,7 +126,7 @@ if uploaded_file is not None:
                     if val and val != 'NAN' and len(val) > 2:
                         return val.title()
 
-            # 2. Varrimento inteligente de todo o texto da linha (Telefone, Morada, Notas, Email, Idioma)
+            # 2. Varrimento inteligente de todo o texto da linha
             texto_completo = " ".join([str(val) for val in row.values if pd.notna(val)]).upper()
 
             if any(k in texto_completo for k in ['+31', '0031', '.NL', 'NETHERLANDS', 'HOLANDA', 'PAÍSES BAIXOS']):
