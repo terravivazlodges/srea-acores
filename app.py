@@ -40,7 +40,7 @@ if uploaded_file is not None:
     try:
         filename = uploaded_file.name.lower()
         
-        # Leitura universal com tratamento robusto de formatos
+        # Leitura universal de CSV ou Excel com tratamento de motores
         if filename.endswith('.csv'):
             try:
                 df = pd.read_csv(uploaded_file, sep=';', encoding='utf-8-sig')
@@ -48,15 +48,13 @@ if uploaded_file is not None:
                 uploaded_file.seek(0)
                 df = pd.read_csv(uploaded_file, sep=',', encoding='utf-8-sig')
         else:
-            # Tenta ler com openpyxl (funciona para xlsx e muitos xls salvos em formato moderno). 
-            # Se falhar por ser um .xls antigo, dá fallback automático ou avisa de forma amigável.
             try:
                 df = pd.read_excel(uploaded_file, engine='openpyxl')
             except Exception:
                 try:
                     df = pd.read_excel(uploaded_file, engine='xlrd')
                 except Exception as e_xlrd:
-                    st.error(f"Erro ao ler o ficheiro Excel. Se for um ficheiro .xls antigo, certifique-se de que a biblioteca 'xlrd' está incluída no seu requirements.txt. Detalhe: {e_xlrd}")
+                    st.error(f"Erro ao ler o ficheiro Excel. Certifique-se de que a biblioteca 'xlrd' / 'openpyxl' está no requirements.txt. Detalhe: {e_xlrd}")
                     st.stop()
 
         # Normalização genérica de colunas para acomodar Booking, Airbnb e Smoobu
@@ -67,11 +65,11 @@ if uploaded_file is not None:
                         return col
             return None
 
-        col_preco = encontrar_coluna(['preço', 'price', 'total', 'valor'])
+        col_preco = encontrar_coluna(['preço', 'price', 'total', 'valor', 'earnings'])
         col_alojamento = encontrar_coluna(['alojamento', 'tipo de unidade', 'listing', 'property', 'room', 'quarto'])
         col_noites = encontrar_coluna(['noites', 'duração', 'nights'])
-        col_adultos = encontrar_coluna(['adultos', 'adults'])
-        col_criancas = encontrar_coluna(['crianças', 'children', 'kids'])
+        col_adultos = encontrar_coluna(['adultos', 'adults', '# of adults'])
+        col_criancas = encontrar_coluna(['crianças', 'children', 'kids', '# of children'])
         col_estado = encontrar_coluna(['estado', 'status'])
         
         # Criação de colunas normalizadas para processamento seguro
@@ -80,11 +78,11 @@ if uploaded_file is not None:
         df['Adultos_Norm'] = df[col_adultos].fillna(1).astype(int) if col_adultos else 1
         df['Criancas_Norm'] = df[col_criancas].fillna(0).astype(int) if col_criancas else 0
 
-        # Filtrar apenas reservas ativas/confirmadas se a coluna de estado existir
+        # Filtrar apenas reservas ativas/confirmadas (ignorar canceladas)
         if col_estado:
             df = df[~df[col_estado].astype(str).str.lower().str.contains('cancel|recusada|declined', na=False)].copy()
 
-        # Limpeza universal do preço
+        # Limpeza universal do preço (remove € / EUR / vírgulas e converte para float)
         if col_preco:
             df['Preço_Bruto'] = (
                 df[col_preco].astype(str)
