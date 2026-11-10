@@ -23,9 +23,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("📊 SREA Açores — Resumo Estatístico Inteligente")
-st.write("Pode carregar **vários ficheiros em simultâneo** (ex: exportações do Airbnb, Booking.com ou Smoobu em formato CSV, XLS ou XLSX).")
+st.write("Pode carregar **vários ficheiros em simultâneo** (Booking.com, Airbnb, Smoobu em formato CSV, XLS ou XLSX).")
 
-# ATENÇÃO: accept_multiple_files=True permite carregar múltiplos documentos
 uploaded_files = st.file_uploader("Selecione os ficheiros de reservas", type=["csv", "xls", "xlsx"], accept_multiple_files=True)
 
 MAPA_PAISES_ISO = {
@@ -34,14 +33,14 @@ MAPA_PAISES_ISO = {
     'US': 'Estados Unidos da América', 'CA': 'Canadá', 'CH': 'Suíça', 
     'IT': 'Itália', 'BE': 'Bélgica', 'AT': 'Áustria', 'SE': 'Suécia', 
     'DK': 'Dinamarca', 'NO': 'Noruega', 'FI': 'Finlândia', 'IE': 'Irlanda', 
-    'PL': 'Polónia', 'CZ': 'República Checa', 'BR': 'Brasil', 'CY': 'Chipre'
+    'PL': 'Polónia', 'CZ': 'República Checa', 'BR': 'Brasil', 'CY': 'Chipre',
+    'IL': 'Israel'
 }
 
 if uploaded_files:
     try:
         lista_dfs = []
         
-        # Ler e juntar todos os ficheiros carregados
         for uploaded_file in uploaded_files:
             filename = uploaded_file.name.lower()
             if filename.endswith('.csv'):
@@ -63,14 +62,11 @@ if uploaded_files:
                         st.error(f"Erro ao ler o ficheiro Excel {uploaded_file.name}: {e_xlrd}")
                         continue
             
-            # Adicionar uma coluna de origem para rastreio opcional
-            temp_df['Origem_Ficheiro'] = uploaded_file.name
             lista_dfs.append(temp_df)
         
         if not lista_dfs:
             st.stop()
             
-        # Consolidar todos os dataframes num só
         df = pd.concat(lista_dfs, ignore_index=True)
 
         def encontrar_coluna(opcoes):
@@ -81,20 +77,24 @@ if uploaded_files:
             return None
 
         col_preco = encontrar_coluna(['preço', 'price', 'total', 'valor', 'earnings'])
-        col_alojamento = encontrar_coluna(['alojamento', 'tipo de unidade', 'listing', 'property', 'room', 'quarto'])
-        col_noites = encontrar_coluna(['noites', 'duração', 'nights'])
-        col_adultos = encontrar_coluna(['adultos', 'adults', '# of adults'])
+        col_alojamento = encontrar_coluna(['alojamento', 'unit type', 'listing', 'property', 'room', 'quarto'])
+        col_noites = encontrar_coluna(['duration (nights)', 'número de noites', 'noites', 'duração', 'nights'])
+        col_adultos = encontrar_coluna(['adultos', 'adults', '# of adults', 'persons'])
         col_criancas = encontrar_coluna(['crianças', 'children', 'kids', '# of children'])
         col_estado = encontrar_coluna(['estado', 'status'])
+        col_telefone = encontrar_coluna(['telefone', 'phone number', 'contact'])
+        col_pais_direto = encontrar_coluna(['booker country', 'country', 'país', 'pais', 'nacionalidade'])
         
-        df['Alojamento_Norm'] = df[col_alojamento].astype(str) if col_alojamento else "Geral"
+        df['Alojamento_Norm'] = df[col_alojamento].astype(str) if col_alojamento else "Unidade Geral"
         df['Noites_Norm'] = pd.to_numeric(df[col_noites], errors='coerce').fillna(1).astype(int) if col_noites else 1
         df['Adultos_Norm'] = pd.to_numeric(df[col_adultos], errors='coerce').fillna(1).astype(int) if col_adultos else 1
         df['Criancas_Norm'] = pd.to_numeric(df[col_criancas], errors='coerce').fillna(0).astype(int) if col_criancas else 0
 
+        # Filtrar reservas canceladas (Booking usa 'cancelled_by_guest', Smoobu usa 'cancel', etc.)
         if col_estado:
             df = df[~df[col_estado].astype(str).str.lower().str.contains('cancel|recusada|declined', na=False)].copy()
 
+        # Limpeza universal de preço (retira "EUR", símbolos e converte para float)
         if col_preco:
             df['Preço_Bruto'] = (
                 df[col_preco].astype(str)
@@ -106,7 +106,7 @@ if uploaded_files:
         else:
             df['Preço_Bruto'] = 0.0
 
-        col_notas = encontrar_coluna(['nota', 'comentário', 'comment', 'note', 'instruction', 'contact'])
+        col_notas = encontrar_coluna(['nota', 'comentário', 'comment', 'note', 'instruction', 'remarks'])
         def extrair_taxa_turistica(row):
             texto = ""
             if col_notas and pd.notna(row[col_notas]):
@@ -122,87 +122,77 @@ if uploaded_files:
         df['Hospedes'] = df['Adultos_Norm'] + df['Criancas_Norm']
         df['Dormidas'] = df['Hospedes'] * df['Noites_Norm']
 
+        # Deteção inteligente de nacionalidade (Colunas diretas do Booking + Telefones + Notas do Smoobu)
         def detetar_nacionalidade_inteligente(row):
-            for col in df.columns:
-                if any(k in col.lower() for k in ['country', 'país', 'pais', 'nacionalidade']):
-                    val = str(row[col]).strip().upper()
-                    if val in MAPA_PAISES_ISO:
-                        return MAPA_PAISES_ISO[val]
-                    if len(val) == 2 and val in MAPA_PAISES_ISO:
-                        return MAPA_PAISES_ISO[val]
-                    if val and val != 'NAN' and len(val) > 2:
-                        return val.title()
+            # 1. Coluna direta do Booking (ex: 'ch', 'nl', 'il')
+            if col_pais_direto and pd.notna(row[col_pais_direto]):
+                val = str(row[col_pais_direto]).strip().upper()
+                if val in MAPA_PAISES_ISO:
+                    return MAPA_PAISES_ISO[val]
+                if len(val) == 2 and val in MAPA_PAISES_ISO:
+                    return MAPA_PAISES_ISO[val]
 
+            # 2. Telefones (Smoobu / Airbnb)
+            if col_telefone and pd.notna(row[col_telefone]):
+                tel = re.sub(r'\D', '', str(row[col_telefone]))
+                if tel.startswith('55'): return 'Brasil'
+                if tel.startswith('351'): return 'Portugal'
+                if tel.startswith('33'): return 'França'
+                if tel.startswith('44'): return 'Reino Unido'
+                if tel.startswith('49'): return 'Alemanha'
+                if tel.startswith('34'): return 'Espanha'
+                if tel.startswith('39'): return 'Itália'
+                if tel.startswith('31'): return 'Países Baixos(Holanda)'
+                if tel.startswith('41'): return 'Suíça'
+                if tel.startswith('1'): return 'Estados Unidos da América'
+                if tel.startswith('46'): return 'Suécia'
+                if tel.startswith('43'): return 'Áustria'
+                if tel.startswith('972'): return 'Israel'
+
+            # 3. Notas e Idioma nas notas (Smoobu)
             texto_completo = " ".join([str(val) for val in row.values if pd.notna(val)]).upper()
+            if any(k in texto_completo for k in ['+31', 'NETHERLANDS', 'HOLANDA', 'PAÍSES BAIXOS', 'GUEST LANGUAGE: NL']): return 'Países Baixos(Holanda)'
+            if any(k in texto_completo for k in ['+55', 'BRASIL', 'GUEST LANGUAGE: PT']): return 'Brasil'
+            if any(k in texto_completo for k in ['+41', 'SUIÇA', 'SUIZA']): return 'Suíça'
+            if any(k in texto_completo for k in ['+33', 'FRANÇA', 'FRANCE', 'GUEST LANGUAGE: FR']): return 'França'
+            if any(k in texto_completo for k in ['+44', 'REINO UNIDO', 'UK', 'GUEST LANGUAGE: EN']): return 'Reino Unido'
+            if any(k in texto_completo for k in ['+49', 'ALEMANHA', 'GERMANY', 'GUEST LANGUAGE: DE']): return 'Alemanha'
+            if any(k in texto_completo for k in ['+34', 'ESPANHA', 'SPAIN', 'GUEST LANGUAGE: ES']): return 'Espanha'
+            if any(k in texto_completo for k in ['+39', 'ITÁLIA', 'ITALIA']): return 'Itália'
+            if any(k in texto_completo for k in ['+351', 'PORTUGAL']): return 'Portugal'
 
-            if any(k in texto_completo for k in ['+31', '0031', '.NL', 'NETHERLANDS', 'HOLANDA', 'PAÍSES BAIXOS']):
-                return 'Países Baixos(Holanda)'
-            if any(k in texto_completo for k in ['+55', 'BRASIL', 'BRA ']):
-                return 'Brasil'
-            if any(k in texto_completo for k in ['+41', 'SUIÇA', 'SUIZA', 'CHE']):
-                return 'Suíça'
-            if any(k in texto_completo for k in ['+1 ', 'ESTADOS UNIDOS', 'USA', '.US']):
-                return 'Estados Unidos da América'
-            if any(k in texto_completo for k in ['+33', 'FRANÇA', 'FRANCE', 'FRA ']):
-                return 'França'
-            if any(k in texto_completo for k in ['+44', 'REINO UNIDO', 'UK', 'GBR', '.UK']):
-                return 'Reino Unido'
-            if any(k in texto_completo for k in ['+49', 'ALEMANHA', 'GERMANY', 'DEU', '.DE']):
-                return 'Alemanha'
-            if any(k in texto_completo for k in ['+34', 'ESPANHA', 'SPAIN', '.ES']):
-                return 'Espanha'
-            if any(k in texto_completo for k in ['+39', 'ITÁLIA', 'ITALIA', '.IT']):
-                return 'Itália'
-            if any(k in texto_completo for k in ['+46', 'SUÉCIA', 'SUECIA', 'SWEDEN']):
-                return 'Suécia'
-            if any(k in texto_completo for k in ['+43', 'ÁUSTRIA', 'AUSTRIA']):
-                return 'Áustria'
-            if any(k in texto_completo for k in ['+351', 'PORTUGAL', 'PRT ', '.PT']):
-                return 'Portugal'
-
-            return 'Outro Estrangeiro / Indefinido (Airbnb)'
+            return 'Portugal'
 
         df['Pais'] = df.apply(detetar_nacionalidade_inteligente, axis=1)
 
-        df_rc = df[df['Alojamento_Norm'].str.contains('RC|Ribeira|Suite|Green|Blue|Garden', case=False, na=False)].copy()
-        df_pb = df[df['Alojamento_Norm'].str.contains('Porto|Bay|Villa', case=False, na=False)].copy()
-        
-        if len(df_rc) == 0 and len(df_pb) == 0:
-            df_rc = df.copy()
-
-        rc_reservas = len(df_rc)
-        rc_hospedes = int(df_rc['Hospedes'].sum())
-        rc_dormidas = int(df_rc['Dormidas'].sum())
-        rc_noites = int(df_rc['Noites_Norm'].sum())
-        rc_rendimento = int(round(df_rc['Preço_Liquido'].sum()))
-
-        pb_reservas = len(df_pb)
-        pb_hospedes = int(df_pb['Hospedes'].sum())
-        pb_dormidas = int(df_pb['Dormidas'].sum())
-        pb_noites = int(df_pb['Noites_Norm'].sum())
-        pb_rendimento = int(round(df_pb['Preço_Liquido'].sum()))
-
         st.success(f"Ficheiros processados com sucesso! Total consolidado de {len(df)} reservas analisadas.")
-        
         st.markdown("---")
-        st.subheader("📋 Quadro 1 (Permanência por País) e Totais Consolidados para o SREA")
+        st.subheader("📋 Quadro 1 (Permanência por País) e Totais Consolidados por Alojamento")
 
-        def gerar_bloco_unidade(nome_unidade, id_unidade, num_res, hospedes, dormidas, noites, rendimento, sub_df, var_noites):
-            if num_res == 0:
-                return f"UNIDADE: {nome_unidade} (ID {id_unidade} — Sem reservas nestes ficheiros)"
-                
+        relatorios_blocos = []
+        dados_excel = []
+
+        for alojamento_nome, sub_df in df.groupby('Alojamento_Norm'):
+            num_res = len(sub_df)
+            hospedes = int(sub_df['Hospedes'].sum())
+            dormidas = int(sub_df['Dormidas'].sum())
+            noites = int(sub_df['Noites_Norm'].sum())
+            rendimento = int(round(sub_df['Preço_Liquido'].sum()))
+
             linhas = [
-                f"UNIDADE: {nome_unidade} (ID {id_unidade} — {num_res} Reservas)",
+                f"UNIDADE: {alojamento_nome} ({num_res} Reservas)",
                 f"  -> Totais Gerais: Hóspedes: {hospedes} | Dormidas: {dormidas}",
-                f"  -> Noites ({var_noites}): {noites} | Rendimento (V150/V151): {rendimento:,} €",
+                f"  -> Noites: {noites} | Rendimento Líquido: {rendimento:,} €",
                 f"  -> Quadro 1 (Permanência por País):"
             ]
-            
+
             agrupado = sub_df.groupby('Pais').agg(
                 hospedes_entraram=('Hospedes', 'sum'),
-                dormidas=('Dormidas', 'sum')
+                dormidas=('Dormidas', 'sum'),
+                noites=('Noites_Norm', 'sum'),
+                rendimento=('Preço_Liquido', 'sum')
             ).reset_index()
-            
+
             for _, row in agrupado.iterrows():
                 he = int(row['hospedes_entraram'])
                 hd = he 
@@ -211,47 +201,30 @@ if uploaded_files:
                 linhas.append(f"        - Nº Hóspedes entram no mês: {he}")
                 linhas.append(f"        - Nº Hóspedes dormem no mês a): {hd}")
                 linhas.append(f"        - Nº de Dormidas (Hóspedes x Noites): {dor}")
-                
-            return "\n".join(linhas)
 
-        rc_bloco = gerar_bloco_unidade("Casa da Ribeira Cottage", "1998", rc_reservas, rc_hospedes, rc_dormidas, rc_noites, rc_rendimento, df_rc, "V103")
-        pb_bloco = gerar_bloco_unidade("Porto Bay Villa", "3836", pb_reservas, pb_hospedes, pb_dormidas, pb_noites, pb_rendimento, df_pb, "V120")
+                dados_excel.append({
+                    'Unidade': alojamento_nome,
+                    'País': row['Pais'],
+                    'Hóspedes Entram': he,
+                    'Hóspedes Dormem': hd,
+                    'Dormidas': dor,
+                    'Noites': int(row['noites']),
+                    'Rendimento Líquido (€)': round(row['rendimento'], 2)
+                })
 
-        relatorio_texto = rc_bloco + ("\n\n" + "="*50 + "\n\n" + pb_bloco if pb_reservas > 0 else "")
+            relatorios_blocos.append("\n".join(linhas))
+
+        relatorio_texto = "\n\n" + "="*50 + "\n\n".join(relatorios_blocos)
 
         st.markdown(f'<div class="report-box">{relatorio_texto}</div>', unsafe_allow_html=True)
 
-        dados_excel = []
-        for nome_un, id_un, sub_df in [("Casa da Ribeira Cottage", "1998", df_rc), ("Porto Bay Villa", "3836", df_pb)]:
-            if len(sub_df) > 0:
-                agrupado_ex = sub_df.groupby('Pais').agg(
-                    hospedes_entraram=('Hospedes', 'sum'),
-                    dormidas=('Dormidas', 'sum'),
-                    noites=('Noites_Norm', 'sum'),
-                    rendimento=('Preço_Liquido', 'sum')
-                ).reset_index()
-                
-                for _, row in agrupado_ex.iterrows():
-                    dados_excel.append({
-                        'Unidade': nome_un,
-                        'ID SREA': id_un,
-                        'País': row['Pais'],
-                        'Hóspedes Entram': int(row['hospedes_entraram']),
-                        'Hóspedes Dormem': int(row['hospedes_entraram']),
-                        'Dormidas': int(row['dormidas']),
-                        'Noites': int(row['noites']),
-                        'Rendimento Líquido (€)': round(row['rendimento'], 2)
-                    })
-
         df_export = pd.DataFrame(dados_excel)
-
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             df_export.to_excel(writer, sheet_name='SREA_Resumo', index=False)
         excel_data = output.getvalue()
 
         st.markdown("<br>", unsafe_allow_html=True)
-        
         col_btn1, col_btn2 = st.columns(2)
         with col_btn1:
             st.download_button(
