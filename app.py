@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import re
+import io
 
 st.set_page_config(page_title="SREA Açores - Resumo Estatístico", page_icon="📊", layout="centered")
 
@@ -26,7 +27,6 @@ st.write("Arraste qualquer ficheiro de exportação (**Smoobu, Booking.com ou Ai
 
 uploaded_file = st.file_uploader("Selecione o ficheiro de reservas", type=["csv", "xls", "xlsx"])
 
-# Dicionário robusto de códigos ISO e termos geográficos para deteção inteligente
 MAPA_PAISES_ISO = {
     'PT': 'Portugal', 'DE': 'Alemanha', 'FR': 'França', 'ES': 'Espanha', 
     'NL': 'Países Baixos(Holanda)', 'GB': 'Reino Unido', 'UK': 'Reino Unido', 
@@ -40,7 +40,6 @@ if uploaded_file is not None:
     try:
         filename = uploaded_file.name.lower()
         
-        # Leitura universal de CSV ou Excel com tratamento robusto para quebras de linha no Airbnb
         if filename.endswith('.csv'):
             try:
                 df = pd.read_csv(uploaded_file, sep=';', encoding='utf-8-sig', on_bad_lines='skip')
@@ -57,10 +56,9 @@ if uploaded_file is not None:
                 try:
                     df = pd.read_excel(uploaded_file, engine='xlrd')
                 except Exception as e_xlrd:
-                    st.error(f"Erro ao ler o ficheiro Excel. Certifique-se de que a biblioteca 'xlrd' / 'openpyxl' está no requirements.txt. Detalhe: {e_xlrd}")
+                    st.error(f"Erro ao ler o ficheiro Excel: {e_xlrd}")
                     st.stop()
 
-        # Normalização genérica de colunas para acomodar Booking, Airbnb e Smoobu
         def encontrar_coluna(opcoes):
             for op in opcoes:
                 for col in df.columns:
@@ -75,17 +73,14 @@ if uploaded_file is not None:
         col_criancas = encontrar_coluna(['crianças', 'children', 'kids', '# of children'])
         col_estado = encontrar_coluna(['estado', 'status'])
         
-        # Criação de colunas normalizadas para processamento seguro com conversão numérica forçada
         df['Alojamento_Norm'] = df[col_alojamento].astype(str) if col_alojamento else "Geral"
         df['Noites_Norm'] = pd.to_numeric(df[col_noites], errors='coerce').fillna(1).astype(int) if col_noites else 1
         df['Adultos_Norm'] = pd.to_numeric(df[col_adultos], errors='coerce').fillna(1).astype(int) if col_adultos else 1
         df['Criancas_Norm'] = pd.to_numeric(df[col_criancas], errors='coerce').fillna(0).astype(int) if col_criancas else 0
 
-        # Filtrar apenas reservas ativas/confirmadas (ignorar canceladas)
         if col_estado:
             df = df[~df[col_estado].astype(str).str.lower().str.contains('cancel|recusada|declined', na=False)].copy()
 
-        # Limpeza universal do preço (remove € / EUR / vírgulas e converte para float)
         if col_preco:
             df['Preço_Bruto'] = (
                 df[col_preco].astype(str)
@@ -97,7 +92,6 @@ if uploaded_file is not None:
         else:
             df['Preço_Bruto'] = 0.0
 
-        # Extração de taxa turística nas notas/comentários
         col_notas = encontrar_coluna(['nota', 'comentário', 'comment', 'note', 'instruction', 'contact'])
         def extrair_taxa_turistica(row):
             texto = ""
@@ -114,9 +108,7 @@ if uploaded_file is not None:
         df['Hospedes'] = df['Adultos_Norm'] + df['Criancas_Norm']
         df['Dormidas'] = df['Hospedes'] * df['Noites_Norm']
 
-        # --- MOTOR INTELIGENTE DE DETEÇÃO DE NACIONALIDADE ---
         def detetar_nacionalidade_inteligente(row):
-            # 1. Verificar colunas diretas de país
             for col in df.columns:
                 if any(k in col.lower() for k in ['country', 'país', 'pais', 'nacionalidade']):
                     val = str(row[col]).strip().upper()
@@ -127,7 +119,6 @@ if uploaded_file is not None:
                     if val and val != 'NAN' and len(val) > 2:
                         return val.title()
 
-            # 2. Varrimento inteligente de todo o texto da linha
             texto_completo = " ".join([str(val) for val in row.values if pd.notna(val)]).upper()
 
             if any(k in texto_completo for k in ['+31', '0031', '.NL', 'NETHERLANDS', 'HOLANDA', 'PAÍSES BAIXOS']):
@@ -155,11 +146,10 @@ if uploaded_file is not None:
             if any(k in texto_completo for k in ['+351', 'PORTUGAL', 'PRT ', '.PT']):
                 return 'Portugal'
 
-            return 'Portugal' # Fallback predefinido
+            return 'Portugal'
 
         df['Pais'] = df.apply(detetar_nacionalidade_inteligente, axis=1)
 
-        # Divisão por Unidades Terra Vivaz
         df_rc = df[df['Alojamento_Norm'].str.contains('RC|Ribeira|Suite|Green|Blue|Garden', case=False, na=False)].copy()
         df_pb = df[df['Alojamento_Norm'].str.contains('Porto|Bay|Villa', case=False, na=False)].copy()
         
@@ -178,7 +168,7 @@ if uploaded_file is not None:
         pb_noites = int(df_pb['Noites_Norm'].sum())
         pb_rendimento = int(round(df_pb['Preço_Liquido'].sum()))
 
-        st.success(f"Ficheiro processado com sucesso! Total de {len(df)} reservas analisadas inteligentemente.")
+        st.success(f"Ficheiro processado com sucesso! Total de {len(df)} reservas analisadas.")
         
         st.markdown("---")
         st.subheader("📋 Quadro 1 (Permanência por País) e Totais para o SREA")
@@ -217,13 +207,57 @@ if uploaded_file is not None:
 
         st.markdown(f'<div class="report-box">{relatorio_texto}</div>', unsafe_allow_html=True)
 
+        # --- GERAÇÃO DO FICHEIRO EXCEL EM MEMÓRIA ---
+        dados_excel = []
+        for nome_un, id_un, sub_df in [("Casa da Ribeira Cottage", "1998", df_rc), ("Porto Bay Villa", "3836", df_pb)]:
+            if len(sub_df) > 0:
+                agrupado_ex = sub_df.groupby('Pais').agg(
+                    hospedes_entraram=('Hospedes', 'sum'),
+                    dormidas=('Dormidas', 'sum'),
+                    noites=('Noites_Norm', 'sum'),
+                    rendimento=('Preço_Liquido', 'sum')
+                ).reset_index()
+                
+                for _, row in agrupado_ex.iterrows():
+                    dados_excel.append({
+                        'Unidade': nome_un,
+                        'ID SREA': id_un,
+                        'País': row['Pais'],
+                        'Hóspedes Entram': int(row['hospedes_entraram']),
+                        'Hóspedes Dormem': int(row['hospedes_entraram']),
+                        'Dormidas': int(row['dormidas']),
+                        'Noites': int(row['noites']),
+                        'Rendimento Líquido (€)': round(row['rendimento'], 2)
+                    })
+
+        df_export = pd.DataFrame(dados_excel)
+
+        # Escrever para um buffer BytesIO usando openpyxl
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df_export.to_excel(writer, sheet_name='SREA_Resumo', index=False)
+        excel_data = output.getvalue()
+
         st.markdown("<br>", unsafe_allow_html=True)
-        st.download_button(
-            label="📥 Descarregar Relatório Completo em Texto",
-            data=relatorio_texto,
-            file_name="relatorio_srea_quadro1.txt",
-            mime="text/plain"
-        )
+        
+        # Botões de Download lado a lado
+        col_btn1, col_btn2 = st.columns(2)
+        with col_btn1:
+            st.download_button(
+                label="📥 Descarregar Relatório (.TXT)",
+                data=relatorio_texto,
+                file_name="relatorio_srea_quadro1.txt",
+                mime="text/plain",
+                use_container_width=True
+            )
+        with col_btn2:
+            st.download_button(
+                label="📊 Descarregar Relatório (.XLSX)",
+                data=excel_data,
+                file_name="relatorio_srea_quadro1.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
 
     except Exception as e:
         st.error(f"Erro ao processar o ficheiro: {e}")
