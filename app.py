@@ -85,16 +85,28 @@ if uploaded_files:
         col_telefone = encontrar_coluna(['telefone', 'phone number', 'contact'])
         col_pais_direto = encontrar_coluna(['booker country', 'country', 'país', 'pais', 'nacionalidade'])
         
-        df['Alojamento_Norm'] = df[col_alojamento].astype(str) if col_alojamento else "Unidade Geral"
+        raw_alojamento = df[col_alojamento].astype(str) if col_alojamento else "Geral"
+
+        # --- NORMALIZAÇÃO INTELIGENTE DAS UNIDADES TERRA VIVAZ ---
+        def normalizar_unidade(val):
+            val_lower = str(val).lower()
+            if any(k in val_lower for k in ['green', 'blue', 'garden', 'ribeira', 'suite', 'rc']):
+                return "Casa da Ribeira Cottage (ID 1998)"
+            elif any(k in val_lower for k in ['porto', 'bay', 'villa']):
+                return "Porto Bay Villa (ID 3836)"
+            return val
+
+        df['Alojamento_Norm'] = raw_alojamento.apply(normalizar_unidade)
+        
         df['Noites_Norm'] = pd.to_numeric(df[col_noites], errors='coerce').fillna(1).astype(int) if col_noites else 1
         df['Adultos_Norm'] = pd.to_numeric(df[col_adultos], errors='coerce').fillna(1).astype(int) if col_adultos else 1
         df['Criancas_Norm'] = pd.to_numeric(df[col_criancas], errors='coerce').fillna(0).astype(int) if col_criancas else 0
 
-        # Filtrar reservas canceladas (Booking usa 'cancelled_by_guest', Smoobu usa 'cancel', etc.)
+        # Filtrar reservas canceladas
         if col_estado:
             df = df[~df[col_estado].astype(str).str.lower().str.contains('cancel|recusada|declined', na=False)].copy()
 
-        # Limpeza universal de preço (retira "EUR", símbolos e converte para float)
+        # Limpeza universal de preço
         if col_preco:
             df['Preço_Bruto'] = (
                 df[col_preco].astype(str)
@@ -122,9 +134,8 @@ if uploaded_files:
         df['Hospedes'] = df['Adultos_Norm'] + df['Criancas_Norm']
         df['Dormidas'] = df['Hospedes'] * df['Noites_Norm']
 
-        # Deteção inteligente de nacionalidade (Colunas diretas do Booking + Telefones + Notas do Smoobu)
+        # Deteção inteligente de nacionalidade
         def detetar_nacionalidade_inteligente(row):
-            # 1. Coluna direta do Booking (ex: 'ch', 'nl', 'il')
             if col_pais_direto and pd.notna(row[col_pais_direto]):
                 val = str(row[col_pais_direto]).strip().upper()
                 if val in MAPA_PAISES_ISO:
@@ -132,7 +143,6 @@ if uploaded_files:
                 if len(val) == 2 and val in MAPA_PAISES_ISO:
                     return MAPA_PAISES_ISO[val]
 
-            # 2. Telefones (Smoobu / Airbnb)
             if col_telefone and pd.notna(row[col_telefone]):
                 tel = re.sub(r'\D', '', str(row[col_telefone]))
                 if tel.startswith('55'): return 'Brasil'
@@ -149,7 +159,6 @@ if uploaded_files:
                 if tel.startswith('43'): return 'Áustria'
                 if tel.startswith('972'): return 'Israel'
 
-            # 3. Notas e Idioma nas notas (Smoobu)
             texto_completo = " ".join([str(val) for val in row.values if pd.notna(val)]).upper()
             if any(k in texto_completo for k in ['+31', 'NETHERLANDS', 'HOLANDA', 'PAÍSES BAIXOS', 'GUEST LANGUAGE: NL']): return 'Países Baixos(Holanda)'
             if any(k in texto_completo for k in ['+55', 'BRASIL', 'GUEST LANGUAGE: PT']): return 'Brasil'
@@ -167,12 +176,12 @@ if uploaded_files:
 
         st.success(f"Ficheiros processados com sucesso! Total consolidado de {len(df)} reservas analisadas.")
         st.markdown("---")
-        st.subheader("📋 Quadro 1 (Permanência por País) e Totais Consolidados por Alojamento")
+        st.subheader("📋 Quadro 1 (Permanência por País) e Totais Consolidados por Unidade SREA")
 
         relatorios_blocos = []
         dados_excel = []
 
-        for alojamento_nome, sub_df in df.groupby('Alojamento_Norm'):
+        for unidade_nome, sub_df in df.groupby('Alojamento_Norm'):
             num_res = len(sub_df)
             hospedes = int(sub_df['Hospedes'].sum())
             dormidas = int(sub_df['Dormidas'].sum())
@@ -180,7 +189,7 @@ if uploaded_files:
             rendimento = int(round(sub_df['Preço_Liquido'].sum()))
 
             linhas = [
-                f"UNIDADE: {alojamento_nome} ({num_res} Reservas)",
+                f"UNIDADE: {unidade_nome} ({num_res} Reservas)",
                 f"  -> Totais Gerais: Hóspedes: {hospedes} | Dormidas: {dormidas}",
                 f"  -> Noites: {noites} | Rendimento Líquido: {rendimento:,} €",
                 f"  -> Quadro 1 (Permanência por País):"
@@ -203,7 +212,7 @@ if uploaded_files:
                 linhas.append(f"        - Nº de Dormidas (Hóspedes x Noites): {dor}")
 
                 dados_excel.append({
-                    'Unidade': alojamento_nome,
+                    'Unidade': unidade_nome,
                     'País': row['Pais'],
                     'Hóspedes Entram': he,
                     'Hóspedes Dormem': hd,
