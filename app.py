@@ -23,9 +23,10 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("📊 SREA Açores — Resumo Estatístico Inteligente")
-st.write("Arraste qualquer ficheiro de exportação (**Smoobu, Booking.com ou Airbnb** em formato CSV, XLS ou XLSX).")
+st.write("Pode carregar **vários ficheiros em simultâneo** (ex: exportações do Airbnb, Booking.com ou Smoobu em formato CSV, XLS ou XLSX).")
 
-uploaded_file = st.file_uploader("Selecione o ficheiro de reservas", type=["csv", "xls", "xlsx"])
+# ATENÇÃO: accept_multiple_files=True permite carregar múltiplos documentos
+uploaded_files = st.file_uploader("Selecione os ficheiros de reservas", type=["csv", "xls", "xlsx"], accept_multiple_files=True)
 
 MAPA_PAISES_ISO = {
     'PT': 'Portugal', 'DE': 'Alemanha', 'FR': 'França', 'ES': 'Espanha', 
@@ -36,28 +37,41 @@ MAPA_PAISES_ISO = {
     'PL': 'Polónia', 'CZ': 'República Checa', 'BR': 'Brasil', 'CY': 'Chipre'
 }
 
-if uploaded_file is not None:
+if uploaded_files:
     try:
-        filename = uploaded_file.name.lower()
+        lista_dfs = []
         
-        if filename.endswith('.csv'):
-            try:
-                df = pd.read_csv(uploaded_file, sep=';', encoding='utf-8-sig', on_bad_lines='skip')
-                if len(df.columns) <= 1:
-                    uploaded_file.seek(0)
-                    df = pd.read_csv(uploaded_file, sep=',', encoding='utf-8-sig', on_bad_lines='skip')
-            except:
-                uploaded_file.seek(0)
-                df = pd.read_csv(uploaded_file, sep=',', encoding='utf-8-sig', on_bad_lines='skip')
-        else:
-            try:
-                df = pd.read_excel(uploaded_file, engine='openpyxl')
-            except Exception:
+        # Ler e juntar todos os ficheiros carregados
+        for uploaded_file in uploaded_files:
+            filename = uploaded_file.name.lower()
+            if filename.endswith('.csv'):
                 try:
-                    df = pd.read_excel(uploaded_file, engine='xlrd')
-                except Exception as e_xlrd:
-                    st.error(f"Erro ao ler o ficheiro Excel: {e_xlrd}")
-                    st.stop()
+                    temp_df = pd.read_csv(uploaded_file, sep=';', encoding='latin-1', on_bad_lines='skip')
+                    if len(temp_df.columns) <= 1:
+                        uploaded_file.seek(0)
+                        temp_df = pd.read_csv(uploaded_file, sep=',', encoding='latin-1', on_bad_lines='skip')
+                except:
+                    uploaded_file.seek(0)
+                    temp_df = pd.read_csv(uploaded_file, sep=',', encoding='latin-1', on_bad_lines='skip')
+            else:
+                try:
+                    temp_df = pd.read_excel(uploaded_file, engine='openpyxl')
+                except Exception:
+                    try:
+                        temp_df = pd.read_excel(uploaded_file, engine='xlrd')
+                    except Exception as e_xlrd:
+                        st.error(f"Erro ao ler o ficheiro Excel {uploaded_file.name}: {e_xlrd}")
+                        continue
+            
+            # Adicionar uma coluna de origem para rastreio opcional
+            temp_df['Origem_Ficheiro'] = uploaded_file.name
+            lista_dfs.append(temp_df)
+        
+        if not lista_dfs:
+            st.stop()
+            
+        # Consolidar todos os dataframes num só
+        df = pd.concat(lista_dfs, ignore_index=True)
 
         def encontrar_coluna(opcoes):
             for op in opcoes:
@@ -146,7 +160,7 @@ if uploaded_file is not None:
             if any(k in texto_completo for k in ['+351', 'PORTUGAL', 'PRT ', '.PT']):
                 return 'Portugal'
 
-            return 'Portugal'
+            return 'Outro Estrangeiro / Indefinido (Airbnb)'
 
         df['Pais'] = df.apply(detetar_nacionalidade_inteligente, axis=1)
 
@@ -168,14 +182,14 @@ if uploaded_file is not None:
         pb_noites = int(df_pb['Noites_Norm'].sum())
         pb_rendimento = int(round(df_pb['Preço_Liquido'].sum()))
 
-        st.success(f"Ficheiro processado com sucesso! Total de {len(df)} reservas analisadas.")
+        st.success(f"Ficheiros processados com sucesso! Total consolidado de {len(df)} reservas analisadas.")
         
         st.markdown("---")
-        st.subheader("📋 Quadro 1 (Permanência por País) e Totais para o SREA")
+        st.subheader("📋 Quadro 1 (Permanência por País) e Totais Consolidados para o SREA")
 
         def gerar_bloco_unidade(nome_unidade, id_unidade, num_res, hospedes, dormidas, noites, rendimento, sub_df, var_noites):
             if num_res == 0:
-                return f"UNIDADE: {nome_unidade} (ID {id_unidade} — Sem reservas neste ficheiro)"
+                return f"UNIDADE: {nome_unidade} (ID {id_unidade} — Sem reservas nestes ficheiros)"
                 
             linhas = [
                 f"UNIDADE: {nome_unidade} (ID {id_unidade} — {num_res} Reservas)",
@@ -207,7 +221,6 @@ if uploaded_file is not None:
 
         st.markdown(f'<div class="report-box">{relatorio_texto}</div>', unsafe_allow_html=True)
 
-        # --- GERAÇÃO DO FICHEIRO EXCEL EM MEMÓRIA ---
         dados_excel = []
         for nome_un, id_un, sub_df in [("Casa da Ribeira Cottage", "1998", df_rc), ("Porto Bay Villa", "3836", df_pb)]:
             if len(sub_df) > 0:
@@ -232,7 +245,6 @@ if uploaded_file is not None:
 
         df_export = pd.DataFrame(dados_excel)
 
-        # Escrever para um buffer BytesIO usando openpyxl
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             df_export.to_excel(writer, sheet_name='SREA_Resumo', index=False)
@@ -240,11 +252,10 @@ if uploaded_file is not None:
 
         st.markdown("<br>", unsafe_allow_html=True)
         
-        # Botões de Download lado a lado
         col_btn1, col_btn2 = st.columns(2)
         with col_btn1:
             st.download_button(
-                label="📥 Descarregar Relatório (.TXT)",
+                label="📥 Descarregar Relatório Consolidado (.TXT)",
                 data=relatorio_texto,
                 file_name="relatorio_srea_quadro1.txt",
                 mime="text/plain",
@@ -252,7 +263,7 @@ if uploaded_file is not None:
             )
         with col_btn2:
             st.download_button(
-                label="📊 Descarregar Relatório (.XLSX)",
+                label="📊 Descarregar Relatório Consolidado (.XLSX)",
                 data=excel_data,
                 file_name="relatorio_srea_quadro1.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -260,4 +271,4 @@ if uploaded_file is not None:
             )
 
     except Exception as e:
-        st.error(f"Erro ao processar o ficheiro: {e}")
+        st.error(f"Erro ao processar os ficheiros: {e}")
